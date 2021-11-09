@@ -207,6 +207,7 @@ namespace winrt::TerminalApp::implementation
         winrt::Windows::Foundation::IAsyncOperation<winrt::Windows::UI::Xaml::Controls::ContentDialogResult> _ShowCloseReadOnlyDialog();
         winrt::Windows::Foundation::IAsyncOperation<winrt::Windows::UI::Xaml::Controls::ContentDialogResult> _ShowMultiLinePasteWarningDialog();
         winrt::Windows::Foundation::IAsyncOperation<winrt::Windows::UI::Xaml::Controls::ContentDialogResult> _ShowLargePasteWarningDialog();
+        winrt::Windows::Foundation::IAsyncOperation<winrt::Windows::UI::Xaml::Controls::ContentDialogResult> _ShowCommandlineApproveWarning();
 
         void _CreateNewTabFlyout();
         void _OpenNewTabDropdown();
@@ -402,6 +403,12 @@ namespace winrt::TerminalApp::implementation
         void _SetFocusMode(const bool inFocusMode);
 
         winrt::Microsoft::Terminal::Settings::Model::Profile GetClosestProfileForDuplicationOfProfile(const winrt::Microsoft::Terminal::Settings::Model::Profile& profile) const noexcept;
+
+        bool _shouldPromptForCommandline(const winrt::hstring& cmdline) const;
+        void _adminWarningPrimaryClicked(const winrt::TerminalApp::AdminWarningPlaceholder& sender,
+                                         const winrt::Windows::UI::Xaml::RoutedEventArgs& args);
+        void _adminWarningCancelClicked(const winrt::TerminalApp::AdminWarningPlaceholder& sender,
+                                        const winrt::Windows::UI::Xaml::RoutedEventArgs& args);
 
         winrt::fire_and_forget _ConnectionStateChangedHandler(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::Foundation::IInspectable& args) const;
         void _CloseOnExitInfoDismissHandler(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::Foundation::IInspectable& args) const;

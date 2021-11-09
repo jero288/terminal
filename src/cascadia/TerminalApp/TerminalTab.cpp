@@ -426,7 +426,10 @@ namespace winrt::TerminalApp::implementation
     winrt::fire_and_forget TerminalTab::Scroll(const int delta)
     {
         auto control = GetActiveTerminalControl();
-
+        if (!control)
+        {
+            co_return;
+        }
         co_await winrt::resume_foreground(control.Dispatcher());
 
         const auto currentOffset = control.ScrollOffset();
@@ -511,7 +514,11 @@ namespace winrt::TerminalApp::implementation
             if (p->_IsLeaf())
             {
                 p->Id(_nextPaneId);
-                _AttachEventHandlersToControl(p->Id().value(), p->_control);
+                if (auto termControl{ p->_control.try_as<TermControl>() })
+                {
+                    _AttachEventHandlersToControl(p->Id().value(), termControl);
+                }
+
                 _nextPaneId++;
             }
             return false;
@@ -856,6 +863,10 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     void TerminalTab::_AttachEventHandlersToControl(const uint32_t paneId, const TermControl& control)
     {
+        if (!control)
+        {
+            return;
+        }
         auto weakThis{ get_weak() };
         auto dispatcher = TabViewItem().Dispatcher();
         ControlEventTokens events{};
@@ -1742,6 +1753,19 @@ namespace winrt::TerminalApp::implementation
         }
 
         return Title();
+    }
+
+    void TerminalTab::ReplaceControl(std::shared_ptr<Pane> pane, const Controls::UserControl& control)
+    {
+        pane->ReplaceControl(control);
+
+        if (auto termControl{ pane->_control.try_as<TermControl>() })
+        {
+            _AttachEventHandlersToControl(pane->Id().value(), termControl);
+        }
+
+        // Update the title manually.
+        UpdateTitle();
     }
 
     DEFINE_EVENT(TerminalTab, ActivePaneChanged, _ActivePaneChangedHandlers, winrt::delegate<>);

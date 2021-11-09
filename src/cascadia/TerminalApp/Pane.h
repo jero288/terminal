@@ -56,7 +56,7 @@ class Pane : public std::enable_shared_from_this<Pane>
 {
 public:
     Pane(const winrt::Microsoft::Terminal::Settings::Model::Profile& profile,
-         const winrt::Microsoft::Terminal::Control::TermControl& control,
+         const winrt::Windows::UI::Xaml::Controls::UserControl& control,
          const bool lastFocused = false);
 
     Pane(std::shared_ptr<Pane> first,
@@ -66,8 +66,9 @@ public:
          const bool lastFocused = false);
 
     std::shared_ptr<Pane> GetActivePane();
+    winrt::Windows::UI::Xaml::Controls::UserControl GetUserControl() const;
     winrt::Microsoft::Terminal::Control::TermControl GetLastFocusedTerminalControl();
-    winrt::Microsoft::Terminal::Control::TermControl GetTerminalControl();
+    winrt::Microsoft::Terminal::Control::TermControl GetTerminalControl() const;
     winrt::Microsoft::Terminal::Settings::Model::Profile GetFocusedProfile();
 
     // Method Description:
@@ -125,6 +126,8 @@ public:
     std::shared_ptr<Pane> AttachPane(std::shared_ptr<Pane> pane,
                                      winrt::Microsoft::Terminal::Settings::Model::SplitDirection splitType);
     std::shared_ptr<Pane> DetachPane(std::shared_ptr<Pane> pane);
+
+    winrt::Windows::UI::Xaml::Controls::UserControl ReplaceControl(const winrt::Windows::UI::Xaml::Controls::UserControl& control);
 
     int GetLeafPaneCount() const noexcept;
 
@@ -200,7 +203,8 @@ private:
     winrt::Windows::UI::Xaml::Controls::Grid _root{};
     winrt::Windows::UI::Xaml::Controls::Border _borderFirst{};
     winrt::Windows::UI::Xaml::Controls::Border _borderSecond{};
-    winrt::Microsoft::Terminal::Control::TermControl _control{ nullptr };
+    winrt::Windows::UI::Xaml::Controls::UserControl _control{ nullptr };
+
     winrt::Microsoft::Terminal::TerminalConnection::ConnectionState _connectionState{ winrt::Microsoft::Terminal::TerminalConnection::ConnectionState::NotConnected };
     static winrt::Windows::UI::Xaml::Media::SolidColorBrush s_focusedBorderBrush;
     static winrt::Windows::UI::Xaml::Media::SolidColorBrush s_unfocusedBorderBrush;

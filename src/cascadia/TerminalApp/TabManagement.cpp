@@ -16,6 +16,7 @@
 #include <LibraryResources.h>
 
 #include "TabRowControl.h"
+#include "AdminWarningPlaceholder.h"
 #include "ColorHelper.h"
 #include "DebugTapConnection.h"
 #include "SettingsTab.h"
