@@ -234,6 +234,10 @@ try
         {
             _createResources();
         }
+        if (WI_IsFlagSet(_api.invalidations, ApiInvalidations::SwapChain))
+        {
+            _createSwapChain();
+        }
         if (WI_IsFlagSet(_api.invalidations, ApiInvalidations::Size))
         {
             _recreateSizeDependentResources();
@@ -711,6 +715,34 @@ void AtlasEngine::_createResources()
     }
 #endif // NDEBUG
 
+    // Our constant buffer will never get resized
+    {
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = sizeof(ConstBuffer);
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        THROW_IF_FAILED(_r.device->CreateBuffer(&desc, nullptr, _r.constantBuffer.put()));
+    }
+
+    THROW_IF_FAILED(_r.device->CreateVertexShader(&shader_vs[0], sizeof(shader_vs), nullptr, _r.vertexShader.put()));
+    THROW_IF_FAILED(_r.device->CreatePixelShader(&shader_ps[0], sizeof(shader_ps), nullptr, _r.pixelShader.put()));
+
+    WI_ClearFlag(_api.invalidations, ApiInvalidations::Device);
+    WI_SetAllFlags(_api.invalidations, ApiInvalidations::SwapChain | ApiInvalidations::Font);
+}
+
+void AtlasEngine::_createSwapChain()
+{
+    // ResizeBuffer() docs:
+    //   Before you call ResizeBuffers, ensure that the application releases all references [...].
+    //   You can use ID3D11DeviceContext::ClearState to ensure that all [internal] references are released.
+    if (_r.swapChain)
+    {
+        _r.renderTargetView.reset();
+        _r.deviceContext->ClearState();
+        _r.deviceContext->Flush();
+    }
+
     // D3D swap chain setup (the thing that allows us to present frames on the screen)
     {
         const auto supportsFrameLatencyWaitableObject = IsWindows8Point1OrGreater();
@@ -770,17 +802,12 @@ void AtlasEngine::_createResources()
         }
     }
 
-    // Our constant buffer will never get resized
-    {
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = sizeof(ConstBuffer);
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        THROW_IF_FAILED(_r.device->CreateBuffer(&desc, nullptr, _r.constantBuffer.put()));
-    }
-
-    THROW_IF_FAILED(_r.device->CreateVertexShader(&shader_vs[0], sizeof(shader_vs), nullptr, _r.vertexShader.put()));
-    THROW_IF_FAILED(_r.device->CreatePixelShader(&shader_ps[0], sizeof(shader_ps), nullptr, _r.pixelShader.put()));
+    // See documentation for IDXGISwapChain2::GetFrameLatencyWaitableObject method:
+    // > For every frame it renders, the app should wait on this handle before starting any rendering operations.
+    // > Note that this requirement includes the first frame the app renders with the swap chain.
+    //
+    // TODO: In the future all D3D code should be moved into AtlasEngine.r.cpp
+    WaitUntilCanRender();
 
     if (_api.swapChainChangedCallback)
     {
@@ -791,15 +818,8 @@ void AtlasEngine::_createResources()
         CATCH_LOG();
     }
 
-    // See documentation for IDXGISwapChain2::GetFrameLatencyWaitableObject method:
-    // > For every frame it renders, the app should wait on this handle before starting any rendering operations.
-    // > Note that this requirement includes the first frame the app renders with the swap chain.
-    //
-    // TODO: In the future all D3D code should be moved into AtlasEngine.r.cpp
-    WaitUntilCanRender();
-
-    WI_ClearFlag(_api.invalidations, ApiInvalidations::Device);
-    WI_SetAllFlags(_api.invalidations, ApiInvalidations::Size | ApiInvalidations::Font);
+    WI_ClearFlag(_api.invalidations, ApiInvalidations::SwapChain);
+    WI_SetAllFlags(_api.invalidations, ApiInvalidations::Size);
 }
 
 void AtlasEngine::_recreateSizeDependentResources()
@@ -807,9 +827,11 @@ void AtlasEngine::_recreateSizeDependentResources()
     // ResizeBuffer() docs:
     //   Before you call ResizeBuffers, ensure that the application releases all references [...].
     //   You can use ID3D11DeviceContext::ClearState to ensure that all [internal] references are released.
+    if (_r.renderTargetView)
     {
         _r.renderTargetView.reset();
         _r.deviceContext->ClearState();
+        _r.deviceContext->Flush();
         THROW_IF_FAILED(_r.swapChain->ResizeBuffers(0, _api.sizeInPixel.x, _api.sizeInPixel.y, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT));
     }
 
@@ -978,7 +1000,10 @@ void AtlasEngine::_recreateFontDependentResources()
                 const auto fontStyle = italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL;
                 auto& textFormat = _r.textFormats[italic][bold];
 
-                THROW_IF_FAILED(_createTextFormat(_api.fontName.get(), fontWeight, fontStyle, _api.fontSize, textFormat.put()));
+                THROW_IF_FAILED(_sr.dwriteFactory->CreateTextFormat(_api.fontName.get(), nullptr, fontWeight, fontStyle, DWRITE_FONT_STRETCH_NORMAL, _api.fontSizeInDIP, L"", textFormat.put()));
+                textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                textFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
                 // DWRITE_LINE_SPACING_METHOD_UNIFORM:
                 // > Lines are explicitly set to uniform spacing, regardless of contained font sizes.
                 // > This can be useful to avoid the uneven appearance that can occur from font fallback.
@@ -987,7 +1012,7 @@ void AtlasEngine::_recreateFontDependentResources()
                 // "baseline" parameter:
                 // > Distance from top of line to baseline. A reasonable ratio to lineSpacing is 80%.
                 // So... let's set it to 80%.
-                THROW_IF_FAILED(textFormat->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, _r.cellSizeDIP.y, _r.cellSizeDIP.y * 0.8f));
+                THROW_IF_FAILED(textFormat->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, _r.cellSizeDIP.y, _api.baselineInDIP));
 
                 if (!_api.fontAxisValues.empty())
                 {
@@ -1022,23 +1047,6 @@ void AtlasEngine::_recreateFontDependentResources()
 
     WI_ClearFlag(_api.invalidations, ApiInvalidations::Font);
     WI_SetAllFlags(_r.invalidations, RenderInvalidations::Cursor | RenderInvalidations::ConstBuffer);
-}
-
-HRESULT AtlasEngine::_createTextFormat(const wchar_t* fontFamilyName, DWRITE_FONT_WEIGHT fontWeight, DWRITE_FONT_STYLE fontStyle, float fontSize, _COM_Outptr_ IDWriteTextFormat** textFormat) const noexcept
-{
-    // Most applications (even OpenType itself) treat font sizes
-    // at a base scale of 72 DPI, whereas DirectWrite uses 96 DPI.
-    // --> Multiply by 1.333 to convert from 72 DPI to 96 DPI scale.
-    fontSize *= 4.0f / 3.0f;
-
-    const auto hr = _sr.dwriteFactory->CreateTextFormat(fontFamilyName, nullptr, fontWeight, fontStyle, DWRITE_FONT_STRETCH_NORMAL, fontSize, L"", textFormat);
-    if (SUCCEEDED(hr))
-    {
-        const auto tf = *textFormat;
-        tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        tf->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    }
-    return hr;
 }
 
 IDWriteTextFormat* AtlasEngine::_getTextFormat(bool bold, bool italic) const noexcept
